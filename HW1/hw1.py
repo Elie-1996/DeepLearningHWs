@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from math import pow
 from torch.autograd import Variable
 import torch.optim as optim
 import torch.nn.functional as functional
@@ -18,7 +19,7 @@ def torch_len(tensor):
 
 
 def get_data():
-    # torch.manual_seed(SEED)
+    torch.manual_seed(SEED)
     X1 = torch.randn(1000, 50)
     X2 = torch.randn(1000, 50) + DIFF
     X = torch.cat([X1, X2], dim=0)
@@ -55,13 +56,13 @@ def get_data():
 
 
 class Net(nn.Module):
-    def __init__(self):
+    def __init__(self, x, first, second):
         super().__init__()
         # fc means Fully Connected
-        self.fc1 = nn.Linear(50, 50)
-        self.fc2 = nn.Linear(50, 100)
-        self.fc3 = nn.Linear(100, 100)
-        self.out = nn.Linear(100, 1)
+        self.fc1 = nn.Linear(50, first)
+        self.fc_new = nn.Linear(first, x)
+        self.fc2 = nn.Linear(x, second)
+        self.out = nn.Linear(second, 1)
         self.out_act = nn.Sigmoid()
 
     # Task 1: Returns the number of parameters used
@@ -71,12 +72,16 @@ class Net(nn.Module):
     def forward(self, input_):
         a1 = self.fc1(input_)
         h1 = functional.relu(a1)
-        a2 = self.fc2(h1)
+
+        a_new = self.fc_new(h1)
+        h_new = functional.relu(a_new)
+
+        a2 = self.fc2(h_new)
         h2 = functional.relu(a2)
-        a3 = self.fc3(h2)
-        h3 = functional.relu(a3)
-        a4 = self.out(h3)
+
+        a4 = self.out(h2)
         y = self.out_act(a4)
+
         return y
 
 
@@ -98,32 +103,38 @@ def train_epoch(model, opt, criterion, batch_size, inputs, expected):
 
 
 if __name__ == '__main__':
-    avg = 0
+    total_runs = 5
+    counter = 0
     X_train, Y_train, X_test, Y_test = get_data()
+    while True:
+        avg = 0
+        counter = counter + 1
+        x = 400
+        first = round(150 + np.random.rand() * 60)
+        second = round(70 + np.random.rand() * 45)
+        for i in range(total_runs):
+            # train network
+            net = Net(x, first, second)
+            criterion = nn.BCELoss()
 
-    for i in range(10):
-        # train network
-        net = Net()
-        criterion = nn.BCELoss()
+            for e in range(NUM_EPOCHS):
+                train_epoch(model=net, opt=None, criterion=criterion, batch_size=50, inputs=X_train, expected=Y_train)
 
-        for e in range(NUM_EPOCHS):
-            train_epoch(model=net, opt=None, criterion=criterion, batch_size=50, inputs=X_train, expected=Y_train)
+            # Note: this notifies the network that it finished training. We don't actually need this line now
+            # since our network is primitive, but it is nice to have good habits for future works
+            net.eval()
 
-        # Note: this notifies the network that it finished training. We don't actually need this line now
-        # since our network is primitive, but it is nice to have good habits for future works
-        net.eval()
+            # run test set
+            out = net(X_test)
+            pred = torch.round(out).detach().numpy()
 
-        # run test set
-        out = net(X_test)
-        pred = torch.round(out).detach().numpy()
+            # convert ground truth to numpy
+            ynp = Y_test.data.numpy()
 
-        # convert ground truth to numpy
-        ynp = Y_test.data.numpy()
+            acc = np.count_nonzero(ynp == pred)
 
-        acc = np.count_nonzero(ynp == pred)
+            # print("Number of Epochs: {}.".format(NUM_EPOCHS))
+            # print("Model accuracy: {}%".format(acc))
+            avg += acc
 
-        print("Number of Epochs: {}.".format(NUM_EPOCHS))
-        print("Model accuracy: {}%".format(acc))
-        avg += acc
-
-    print(f"Average accuracy: {avg/10}%")
+        print(f"Average accuracy for (first, second) = ({first , second}) -> {avg/total_runs}%")
