@@ -110,8 +110,8 @@ if __name__ == '__main__':
         avg = 0
         counter = counter + 1
         x = 400
-        first = round(150 + np.random.rand() * 60)
-        second = round(70 + np.random.rand() * 45)
+        first = 500
+        second = 340
         for i in range(total_runs):
             # train network
             net = Net(x, first, second)
