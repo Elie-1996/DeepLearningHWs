@@ -64,6 +64,7 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(x, second)
         self.out = nn.Linear(second, 1)
         self.out_act = nn.Sigmoid()
+        self.hid_act = nn.Tanh()
 
     # Task 1: Returns the number of parameters used
     def get_param_count(self):
@@ -71,13 +72,13 @@ class Net(nn.Module):
 
     def forward(self, input_):
         a1 = self.fc1(input_)
-        h1 = functional.relu(a1)
+        h1 = self.hid_act(a1)
 
         a_new = self.fc_new(h1)
-        h_new = functional.relu(a_new)
+        h_new = self.hid_act(a_new)
 
         a2 = self.fc2(h_new)
-        h2 = functional.relu(a2)
+        h2 = self.hid_act(a2)
 
         a4 = self.out(h2)
         y = self.out_act(a4)
@@ -133,8 +134,8 @@ if __name__ == '__main__':
 
             acc = np.count_nonzero(ynp == pred)
 
-            # print("Number of Epochs: {}.".format(NUM_EPOCHS))
-            # print("Model accuracy: {}%".format(acc))
+            print("Number of Epochs: {}.".format(NUM_EPOCHS))
+            print("Model accuracy: {}%".format(acc))
             avg += acc
 
         print(f"Average accuracy for (first, second) = ({first , second}) -> {avg/total_runs}%")
