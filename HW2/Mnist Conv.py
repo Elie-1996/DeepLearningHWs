@@ -1,9 +1,13 @@
+import os
+
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
+import numpy as np
+import csv
 
 n_epochs = 3
 batch_size_train = 128
@@ -17,7 +21,21 @@ random_seed = 1
 torch.backends.cudnn.enabled = False
 torch.manual_seed(random_seed)
 
-train_loader = torch.utils.data.DataLoader(
+
+mnist_train = torchvision.datasets.MNIST('/files/', train=True, download=True,
+                                         transform=torchvision.transforms.Compose([
+                                   torchvision.transforms.ToTensor(),
+                                   torchvision.transforms.Normalize(
+                                       (0.1307,), (0.3081,))
+                               ]))
+mnist_test = torchvision.datasets.MNIST('/files/', train=False, download=True,
+                               transform=torchvision.transforms.Compose([
+                                   torchvision.transforms.ToTensor(),
+                                   torchvision.transforms.Normalize(
+                                       (0.1307,), (0.3081,))
+                               ]))
+
+TRAIN = torch.utils.data.DataLoader(
     torchvision.datasets.MNIST('/files/', train=True, download=True,
                                transform=torchvision.transforms.Compose([
                                    torchvision.transforms.ToTensor(),
@@ -26,7 +44,7 @@ train_loader = torch.utils.data.DataLoader(
                                ])),
     batch_size=batch_size_train, shuffle=True)
 
-test_loader = torch.utils.data.DataLoader(
+TEST = torch.utils.data.DataLoader(
     torchvision.datasets.MNIST('/files/', train=False, download=True,
                                transform=torchvision.transforms.Compose([
                                    torchvision.transforms.ToTensor(),
@@ -35,20 +53,20 @@ test_loader = torch.utils.data.DataLoader(
                                ])),
     batch_size=batch_size_test, shuffle=True)
 
-examples = enumerate(test_loader)
-batch_idx, (example_data, example_targets) = next(examples)
-print("Shape: ", example_data.shape)
-
-if PLOT:
-    fig = plt.figure()
-    for i in range(6):
-        plt.subplot(2, 3, i + 1)
-        plt.tight_layout()
-        plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
-        plt.title("Ground Truth: {}".format(example_targets[i]))
-        plt.xticks([])
-        plt.yticks([])
-    # fig
+# examples = enumerate(TEST)
+# batch_idx, (example_data, example_targets) = next(examples)
+# print("Shape: ", example_data.shape)
+#
+# if PLOT:
+#     fig = plt.figure()
+#     for i in range(6):
+#         plt.subplot(2, 3, i + 1)
+#         plt.tight_layout()
+#         plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
+#         plt.title("Ground Truth: {}".format(example_targets[i]))
+#         plt.xticks([])
+#         plt.yticks([])
+#     # fig
 
 
 class Net(nn.Module):
@@ -70,7 +88,7 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
-def train(_epoch):
+def train(_epoch, train_loader):
     network.train()
     for _batch_idx, (data, target) in enumerate(train_loader):
         optimizer.zero_grad()
@@ -90,7 +108,65 @@ def train(_epoch):
         # torch.save(optimizer.state_dict(), '/optimizer.pth')
 
 
-def run_test():
+def divide_data_loader(mnist_data, folder):
+    low_img, low_label, high_img, high_label = [], [], [], []
+
+    if not os.path.exists(folder):
+        for index, (img, label) in enumerate(mnist_data):
+            if 0 <= label <= 6:
+                low_img.append(img.tolist())
+                low_label.append(label)
+
+            else:
+                high_img.append(img.tolist())
+                high_label.append(label)
+
+            # if index >= 128:
+            #     break
+
+        os.mkdir(folder)
+        save_files(folder, low_img, low_label, high_img, high_label)
+    else:
+        low_img, low_label, high_img, high_label = load_files(folder)
+
+    low_tensor_img = torch.Tensor(low_img)
+    low_tensor_label = torch.LongTensor(low_label)
+    high_tensor_img = torch.Tensor(high_img)
+    high_tensor_label = torch.LongTensor(high_label)
+
+    low_dataset = torch.utils.data.TensorDataset(low_tensor_img, low_tensor_label)
+    high_dataset = torch.utils.data.TensorDataset(high_tensor_img, high_tensor_label)
+
+    low_loader = torch.utils.data.DataLoader(low_dataset, batch_size=batch_size_train, shuffle=True)
+    high_loader = torch.utils.data.DataLoader(high_dataset, batch_size=batch_size_train, shuffle=True)
+
+    return low_loader, high_loader
+
+
+def load_files(folder):
+    low_img = load_file(f"{folder}\\low_img")
+    low_label = load_file(f"{folder}\\low_label")
+    high_img = load_file(f"{folder}\\high_img")
+    high_label = load_file(f"{folder}\\high_label")
+    return low_img, low_label, high_img, high_label
+
+
+def load_file(path):
+    return torch.load(f"{path}.pt")
+
+
+def save_files(folder, low_img, low_label, high_img, high_label):
+    save_list(f"{folder}\\low_img", low_img)
+    save_list(f"{folder}\\low_label", low_label)
+    save_list(f"{folder}\\high_img", high_img)
+    save_list(f"{folder}\\high_label", high_label)
+
+
+def save_list(path, data):
+    torch.save(data, f"{path}.pt")
+
+
+def run_test(test_loader):
     network.eval()
     test_loss = 0
     correct = 0
@@ -108,19 +184,23 @@ def run_test():
 
 
 if __name__ == '__main__':
+    low_train, high_train = divide_data_loader(mnist_train, "train")
+    low_test, high_test = divide_data_loader(mnist_test, "test")
     network = Net()
     optimizer = optim.SGD(network.parameters(), lr=learning_rate, momentum=momentum)
 
     train_losses = []
     train_counter = []
     test_losses = []
-    test_counter = [i * len(train_loader.dataset) for i in range(n_epochs + 1)]
+    test_counter = [i * len(low_train) for i in range(n_epochs + 1)]
 
     # train & test
-    run_test()
+    run_test(low_test)
     for epoch in range(1, n_epochs + 1):
-        train(epoch)
-        run_test()
+        train(epoch, low_train)
+        run_test(low_test)
+
+    # Made Base Model
 
     # eval
     fig = plt.figure()
@@ -129,4 +209,4 @@ if __name__ == '__main__':
     plt.legend(['Train Loss', 'Test Loss'], loc='upper right')
     plt.xlabel('number of training examples seen')
     plt.ylabel('negative log likelihood loss')
-    # fig
+    fig
