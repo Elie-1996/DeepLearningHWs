@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.utils.data
 import torchvision
 import copy
+import time
 
 n_epochs = 3
 batch_size_train = 128
@@ -114,22 +115,6 @@ def save_list(path, data):
     torch.save(data, f"{path}.pt")
 
 
-# examples = enumerate(TEST)
-# batch_idx, (example_data, example_targets) = next(examples)
-# print("Shape: ", example_data.shape)
-#
-# if PLOT:
-#     fig = plt.figure()
-#     for i in range(6):
-#         plt.subplot(2, 3, i + 1)
-#         plt.tight_layout()
-#         plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
-#         plt.title("Ground Truth: {}".format(example_targets[i]))
-#         plt.xticks([])
-#         plt.yticks([])
-#     # fig
-
-
 class Net(nn.Module):
 
     # debugging purposes
@@ -170,7 +155,8 @@ class Net(nn.Module):
             self.secondary_constructor(base_model)
 
         # decide on optimizer
-        self.optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), lr=learning_rate, momentum=momentum)
+        self.optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), lr=learning_rate,
+                                   momentum=momentum)
 
     def parameters_count(self):
         return sum(p.numel() for p in self.parameters())
@@ -243,8 +229,7 @@ def train_specific_model(model, train_data, test_data, msg):
     test_losses = []
     test_counter = [i * len(train_data) for i in range(n_epochs + 1)]
     # train & test
-    # m = 1
-    # model.print_weights(m, f"{msg} - Before Training")
+    # model.print_weights(1, f"{msg} - Before Training")
     run_test(model, test_data, test_losses)
     for epoch in range(1, n_epochs + 1):
         train(model, epoch, train_data, train_losses, train_counter)
@@ -253,32 +238,72 @@ def train_specific_model(model, train_data, test_data, msg):
     return train_losses, train_counter, test_losses, test_counter
 
 
-def plot_graphs(train_counter, train_losses, test_counter, test_losses):
+def plot_graphs(train_losses, train_counter, test_losses, test_counter, title):
     plt.figure(1)
-    plt.legend('Train Loss', loc='upper right')
     plt.plot(train_counter, train_losses, color='blue')
     plt.xlabel('number of training examples seen')
     plt.ylabel('negative log likelihood loss')
+    plt.legend(['Train Loss'], loc='upper right')
+    plt.title(f"{title} - Train")
 
     plt.figure(2)
-    plt.legend('Test Loss', loc='upper right')
     plt.plot(test_counter, test_losses, color='red')
     plt.xlabel('number of test examples seen')
     plt.ylabel('negative log likelihood loss')
+    plt.legend(['Test Loss'], loc='upper right')
+    plt.title(f"{title} - Test")
 
     plt.show()
+
+
+global_figure_index = 1
+
+
+def plot_comparison_graphs(graph_data_from_model1, graph_data_from_model2):
+    global global_figure_index
+    global_figure_index += 2
+    m1_train_losses, m1_train_counter, m1_test_losses, m1_test_counter, m1_legend = graph_data_from_model1
+    m2_train_losses, m2_train_counter, m2_test_losses, m2_test_counter, m2_legend = graph_data_from_model2
+
+    plt.figure(global_figure_index)
+    plt.plot(m1_train_counter, m1_train_losses, color='blue')
+    plt.plot(m2_train_counter, m2_train_losses, color='red')
+    plt.xlabel('number of training examples seen')
+    plt.ylabel('negative log likelihood loss')
+    plt.legend([m1_legend, m2_legend], loc='upper right')
+    plt.title("Train Comparison")
+    plt.figure(global_figure_index + 1)
+    plt.plot(m1_test_counter, m1_test_losses, color='blue')
+    plt.plot(m2_test_counter, m2_test_losses, color='red')
+    plt.xlabel('number of test examples seen')
+    plt.ylabel('negative log likelihood loss')
+    plt.legend([m1_legend, m2_legend], loc='upper right')
+    plt.title("Test Comparison")
+
+    plt.show()
+
 
 if __name__ == '__main__':
     low_train, high_train = divide_data_loader(mnist_train, "train")
     low_test, high_test = divide_data_loader(mnist_test, "test")
 
     base_model_nn = Net(None)
-    train_losses, train_counter, test_losses, test_counter = train_specific_model(base_model_nn, low_train, low_test, "Base Model")
+    bm_train_loss, bm_train_counter, bm_test_losses, bm_test_counter = train_specific_model(base_model_nn, low_train, low_test, "Base Model")
+    plot_graphs(bm_train_loss, bm_train_counter, bm_test_losses, bm_test_counter, "Base Model")
 
     secondary_model_nn = Net(base_model_nn)
-    train_specific_model(secondary_model_nn, high_train, high_test, "Secondary Model")
+    sm_start_time = time.time()
+    sm_train_loss, sm_train_counter, sm_test_losses, sm_test_counter = train_specific_model(secondary_model_nn, high_train, high_test, "Secondary Model")
+    sm_time_passed = time.time() - sm_start_time
+    plot_graphs(sm_train_loss, sm_train_counter, sm_test_losses, sm_test_counter, "Secondary Model")
 
     third_model_nn = Net(None)
-    train_specific_model(third_model_nn, high_train, high_test, "Third Model")
+    tm_start_time = time.time()
+    tm_train_loss, tm_train_counter, tm_test_losses, tm_test_counter = train_specific_model(third_model_nn, high_train, high_test, "Third Model")
+    tm_time_passed = time.time() - tm_start_time
+    plot_graphs(tm_train_loss, tm_train_counter, tm_test_losses, tm_test_counter, "Third Model")
+    plot_comparison_graphs((sm_train_loss, sm_train_counter, sm_test_losses, sm_test_counter, "Secondary"),
+                           (tm_train_loss, tm_train_counter, tm_test_losses, tm_test_counter, "Third"))
 
-    plot_graphs(train_counter, train_losses, test_counter, test_losses)
+    print(f"Time it took to train Secondary: {sm_time_passed}")
+    print(f"Time it took to train Third: {tm_time_passed}")
