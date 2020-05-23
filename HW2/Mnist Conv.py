@@ -2,12 +2,13 @@ import os
 
 import matplotlib.pyplot as plt
 import torch
+import torch.backends.cudnn
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.utils.data
 import torchvision
-import numpy as np
-import csv
+import copy
 
 n_epochs = 3
 batch_size_train = 128
@@ -53,59 +54,6 @@ TEST = torch.utils.data.DataLoader(
                                ])),
     batch_size=batch_size_test, shuffle=True)
 
-# examples = enumerate(TEST)
-# batch_idx, (example_data, example_targets) = next(examples)
-# print("Shape: ", example_data.shape)
-#
-# if PLOT:
-#     fig = plt.figure()
-#     for i in range(6):
-#         plt.subplot(2, 3, i + 1)
-#         plt.tight_layout()
-#         plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
-#         plt.title("Ground Truth: {}".format(example_targets[i]))
-#         plt.xticks([])
-#         plt.yticks([])
-#     # fig
-
-
-class Net(nn.Module):
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x)
-
-
-def train(_epoch, train_loader):
-    network.train()
-    for _batch_idx, (data, target) in enumerate(train_loader):
-        optimizer.zero_grad()
-        output = network(data)
-        loss = F.nll_loss(output, target)
-        loss.backward()
-        optimizer.step()
-        if _batch_idx % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                _epoch, _batch_idx * len(data), len(train_loader.dataset),
-                100. * _batch_idx / len(train_loader), loss.item()))
-            train_losses.append(loss.item())
-            train_counter.append(
-                (_batch_idx * 64) + ((_epoch - 1) * len(train_loader.dataset)))
-        # if you want to save, set a path
-        # torch.save(network.state_dict(), '/model.pth')
-        # torch.save(optimizer.state_dict(), '/optimizer.pth')
 
 
 def divide_data_loader(mnist_data, folder):
@@ -166,7 +114,110 @@ def save_list(path, data):
     torch.save(data, f"{path}.pt")
 
 
-def run_test(test_loader):
+# examples = enumerate(TEST)
+# batch_idx, (example_data, example_targets) = next(examples)
+# print("Shape: ", example_data.shape)
+#
+# if PLOT:
+#     fig = plt.figure()
+#     for i in range(6):
+#         plt.subplot(2, 3, i + 1)
+#         plt.tight_layout()
+#         plt.imshow(example_data[i][0], cmap='gray', interpolation='none')
+#         plt.title("Ground Truth: {}".format(example_targets[i]))
+#         plt.xticks([])
+#         plt.yticks([])
+#     # fig
+
+
+class Net(nn.Module):
+
+    # debugging purposes
+    def print_weights(self, m, msg):
+        print(f"Printing Learned Weights: {msg}")
+
+        idx = 0
+        for param in self.parameters():
+            if self.copy_threshold <= idx <= self.copy_threshold + m:
+                print("Final Layers:")
+                print(param.data)
+            elif self.freeze_threshold <= idx <= self.freeze_threshold + m:
+                print("Intermediate Layers:")
+                print(param.data)
+            elif 0 <= idx <= m:
+                print("Initial Layers:")
+                print(param.data)
+            idx += param.numel()
+        print("=================================================================")
+
+    def __init__(self, base_model):
+        super(Net, self).__init__()
+
+        # neural network structure
+        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
+        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
+
+        # threshold 1
+        self.freeze_threshold = self.parameters_count()
+        self.conv2_drop = nn.Dropout2d()
+        self.fc1 = nn.Linear(320, 50)
+
+        # threshold 2
+        self.copy_threshold = self.parameters_count()
+        self.fc2 = nn.Linear(50, 10)
+
+        if base_model:
+            self.secondary_constructor(base_model)
+
+        # decide on optimizer
+        self.optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), lr=learning_rate, momentum=momentum)
+
+    def parameters_count(self):
+        return sum(p.numel() for p in self.parameters())
+
+    def secondary_constructor(self, base_model):
+        # initialize same as base_model
+        fc_sd = copy.deepcopy(self.fc2.state_dict())
+        self.load_state_dict(base_model.state_dict())
+        self.fc2.load_state_dict(fc_sd)
+
+        # freezing layer gradient updates
+        self.conv1.weight.requires_grad = False
+        self.conv1.bias.requires_grad = False
+        self.conv2.weight.requires_grad = False
+        self.conv2.bias.requires_grad = False
+
+    def forward(self, x):
+        x = F.relu(F.max_pool2d(self.conv1(x), 2))
+        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
+        x = x.view(-1, 320)
+        x = F.relu(self.fc1(x))
+        x = F.dropout(x, training=self.training)
+        x = self.fc2(x)
+        return F.log_softmax(x)
+
+
+def train(network, _epoch, train_loader):
+    network.train()
+    for _batch_idx, (data, target) in enumerate(train_loader):
+        network.optimizer.zero_grad()
+        output = network(data)
+        loss = F.nll_loss(output, target)
+        loss.backward()
+        network.optimizer.step()
+        if _batch_idx % log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                _epoch, _batch_idx * len(data), len(train_loader.dataset),
+                100. * _batch_idx / len(train_loader), loss.item()))
+            train_losses.append(loss.item())
+            train_counter.append(
+                (_batch_idx * 64) + ((_epoch - 1) * len(train_loader.dataset)))
+        # if you want to save, set a path
+        # torch.save(network.state_dict(), '/model.pth')
+        # torch.save(optimizer.state_dict(), '/optimizer.pth')
+
+
+def run_test(network, test_loader):
     network.eval()
     test_loss = 0
     correct = 0
@@ -186,8 +237,7 @@ def run_test(test_loader):
 if __name__ == '__main__':
     low_train, high_train = divide_data_loader(mnist_train, "train")
     low_test, high_test = divide_data_loader(mnist_test, "test")
-    network = Net()
-    optimizer = optim.SGD(network.parameters(), lr=learning_rate, momentum=momentum)
+    base_model_nn = Net(None)
 
     train_losses = []
     train_counter = []
@@ -195,12 +245,20 @@ if __name__ == '__main__':
     test_counter = [i * len(low_train) for i in range(n_epochs + 1)]
 
     # train & test
-    run_test(low_test)
+    # m = 1
+    # base_model_nn.print_weights(m, "Base Model - Before Training")
     for epoch in range(1, n_epochs + 1):
-        train(epoch, low_train)
-        run_test(low_test)
+        train(base_model_nn, epoch, low_train)
+        run_test(base_model_nn, low_test)
+    # base_model_nn.print_weights(m, "Base Model - After Training")
 
     # Made Base Model
+    secondary_model_nn = Net(base_model_nn)
+    # secondary_model_nn.print_weights(m, "Secondary Model - Before Training")
+    for epoch in range(1, n_epochs + 1):
+        train(secondary_model_nn, epoch, high_train)
+        run_test(secondary_model_nn, high_test)
+    # secondary_model_nn.print_weights(m, "Secondary Model - After Training")
 
     # eval
     fig = plt.figure()
@@ -209,4 +267,4 @@ if __name__ == '__main__':
     plt.legend(['Train Loss', 'Test Loss'], loc='upper right')
     plt.xlabel('number of training examples seen')
     plt.ylabel('negative log likelihood loss')
-    fig
+    # fig
