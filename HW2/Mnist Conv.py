@@ -197,7 +197,7 @@ class Net(nn.Module):
         return F.log_softmax(x)
 
 
-def train(network, _epoch, train_loader):
+def train(network, _epoch, train_loader, train_losses, train_counter):
     network.train()
     for _batch_idx, (data, target) in enumerate(train_loader):
         network.optimizer.zero_grad()
@@ -217,7 +217,9 @@ def train(network, _epoch, train_loader):
         # torch.save(optimizer.state_dict(), '/optimizer.pth')
 
 
-def run_test(network, test_loader):
+def run_test(network, test_loader, test_losses):
+    test_counter = [i * len(test_loader.dataset) for i in range(n_epochs + 1)]
+
     network.eval()
     test_loss = 0
     correct = 0
@@ -232,39 +234,51 @@ def run_test(network, test_loader):
     print('\nTest set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+    return test_losses, test_counter
 
+
+def train_specific_model(model, train_data, test_data, msg):
+    train_losses = []
+    train_counter = []
+    test_losses = []
+    test_counter = [i * len(train_data) for i in range(n_epochs + 1)]
+    # train & test
+    # m = 1
+    # model.print_weights(m, f"{msg} - Before Training")
+    run_test(model, test_data, test_losses)
+    for epoch in range(1, n_epochs + 1):
+        train(model, epoch, train_data, train_losses, train_counter)
+        run_test(model, test_data, test_losses)
+    # base_model_nn.print_weights(m, f"{msg} - After Training")
+    return train_losses, train_counter, test_losses, test_counter
+
+
+def plot_graphs(train_counter, train_losses, test_counter, test_losses):
+    plt.figure(1)
+    plt.legend('Train Loss', loc='upper right')
+    plt.plot(train_counter, train_losses, color='blue')
+    plt.xlabel('number of training examples seen')
+    plt.ylabel('negative log likelihood loss')
+
+    plt.figure(2)
+    plt.legend('Test Loss', loc='upper right')
+    plt.plot(test_counter, test_losses, color='red')
+    plt.xlabel('number of test examples seen')
+    plt.ylabel('negative log likelihood loss')
+
+    plt.show()
 
 if __name__ == '__main__':
     low_train, high_train = divide_data_loader(mnist_train, "train")
     low_test, high_test = divide_data_loader(mnist_test, "test")
+
     base_model_nn = Net(None)
+    train_losses, train_counter, test_losses, test_counter = train_specific_model(base_model_nn, low_train, low_test, "Base Model")
 
-    train_losses = []
-    train_counter = []
-    test_losses = []
-    test_counter = [i * len(low_train) for i in range(n_epochs + 1)]
-
-    # train & test
-    # m = 1
-    # base_model_nn.print_weights(m, "Base Model - Before Training")
-    for epoch in range(1, n_epochs + 1):
-        train(base_model_nn, epoch, low_train)
-        run_test(base_model_nn, low_test)
-    # base_model_nn.print_weights(m, "Base Model - After Training")
-
-    # Made Base Model
     secondary_model_nn = Net(base_model_nn)
-    # secondary_model_nn.print_weights(m, "Secondary Model - Before Training")
-    for epoch in range(1, n_epochs + 1):
-        train(secondary_model_nn, epoch, high_train)
-        run_test(secondary_model_nn, high_test)
-    # secondary_model_nn.print_weights(m, "Secondary Model - After Training")
+    train_specific_model(secondary_model_nn, high_train, high_test, "Secondary Model")
 
-    # eval
-    fig = plt.figure()
-    plt.plot(train_counter, train_losses, color='blue')
-    plt.plot(test_counter, test_losses, color='red')
-    plt.legend(['Train Loss', 'Test Loss'], loc='upper right')
-    plt.xlabel('number of training examples seen')
-    plt.ylabel('negative log likelihood loss')
-    # fig
+    third_model_nn = Net(None)
+    train_specific_model(third_model_nn, high_train, high_test, "Third Model")
+
+    plot_graphs(train_counter, train_losses, test_counter, test_losses)
