@@ -125,7 +125,8 @@ def actual_plot(model, test_data, predictions):
     plt.autoscale(axis='x', tight=True)
     x = [i for i in range(TRAIN_WINDOW)]
     loss = nn.MSELoss()
-    y = loss(test_data, predictions).values().tolist()
+    d = predictions.tolist()
+    y = [loss(torch.FloatTensor([test_data[i]]), torch.FloatTensor([d[i]])) for i in range(len(test_data))]
     # plt.plot(test_data)
     # plt.plot([i for i in range(TRAIN_WINDOW)], predictions)
     plt.plot(x, y)
