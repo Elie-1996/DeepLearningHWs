@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 
 TRAIN_WINDOW = 10
+LSTM_LAYERS = 1
 scaler = MinMaxScaler(feature_range=(-1, 1))
 
 
@@ -67,13 +68,13 @@ class LSTMModel(nn.Sequential):
         self.hidden_layer_size = hidden_dim
         # The LSTM takes word embeddings as inputs, and outputs hidden states
         # with dimensionality hidden_dim.
-        self.lstm = nn.LSTM(input_dim, hidden_dim)
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=LSTM_LAYERS)
 
         # The linear layer that maps from hidden state space to tag space
         self.linear = nn.Linear(self.hidden_layer_size, target_dim)
 
-        self.hidden_cell = (torch.zeros(1, 1, self.hidden_layer_size),
-                            torch.zeros(1, 1, self.hidden_layer_size))
+        self.hidden_cell = (torch.zeros(LSTM_LAYERS, 1, self.hidden_layer_size),
+                            torch.zeros(LSTM_LAYERS, 1, self.hidden_layer_size))
 
         # keep at end
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
@@ -95,10 +96,8 @@ def predict_data(model, test_inputs):
     for i in range(TRAIN_WINDOW):
         seq = torch.FloatTensor(test_inputs[-TRAIN_WINDOW:])
         with torch.no_grad():
-            model.hidden = (torch.zeros(1, 1, model.hidden_layer_size),
-                            torch.zeros(1, 1, model.hidden_layer_size))
-            a = model(seq)
-            b = model(seq).item()
+            model.hidden = (torch.zeros(LSTM_LAYERS, 1, model.hidden_layer_size),
+                            torch.zeros(LSTM_LAYERS, 1, model.hidden_layer_size))
             test_inputs.append(model(seq).item())
 
     actual_predictions = scaler.inverse_transform(np.array(test_inputs[TRAIN_WINDOW:]).reshape(-1, 1))
@@ -111,21 +110,25 @@ def train(model, train_inout_seq, epochs):
     for i in range(epochs):
         for seq, labels in train_inout_seq:
             model.optimizer.zero_grad()
-            model.hidden_cell = (torch.zeros(1, 1, model.hidden_layer_size),
-                                 torch.zeros(1, 1, model.hidden_layer_size))
+            model.hidden_cell = (torch.zeros(LSTM_LAYERS, 1, model.hidden_layer_size),
+                                 torch.zeros(LSTM_LAYERS, 1, model.hidden_layer_size))
 
             y_pred = model(seq)
 
             model.gradient_step(y_pred, labels)
 
 
-def actual_plot(test_data, predictions):
-    plt.title('Predictions vs Test')
-    plt.ylabel('Total Value')
+def actual_plot(model, test_data, predictions):
+    plt.title('Predictions vs Test Loss')
+    plt.ylabel('Loss')
     plt.grid(True)
     plt.autoscale(axis='x', tight=True)
-    plt.plot(test_data)
-    plt.plot([i for i in range(TRAIN_WINDOW)], predictions)
+    x = [i for i in range(TRAIN_WINDOW)]
+    loss = nn.MSELoss()
+    y = loss(test_data, predictions).values().tolist()
+    # plt.plot(test_data)
+    # plt.plot([i for i in range(TRAIN_WINDOW)], predictions)
+    plt.plot(x, y)
     plt.show()
 
 
@@ -134,10 +137,10 @@ def main():
 
     labeledTrainingSequence = create_inout_sequences(trainData)
 
-    model = LSTMModel(1, 5, 1, 0.001)
-    train(model, labeledTrainingSequence, epochs=150)
+    model = LSTMModel(1, 100, 1, 0.001)
+    train(model, labeledTrainingSequence, epochs=300)
     predictions = predict_data(model, trainData[-TRAIN_WINDOW:].tolist())
-    actual_plot(testData, predictions)
+    actual_plot(model, testData, predictions)
 
     pass
 
