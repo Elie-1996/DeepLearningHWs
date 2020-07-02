@@ -1,4 +1,3 @@
-from __future__ import print_function
 
 from statsmodels.tsa.arima_process import arma_generate_sample
 import torch
@@ -63,7 +62,7 @@ def print_shape(t, title=None):
 
 
 class LSTMModel(nn.Sequential):
-    def __init__(self, input_dim, hidden_dim, target_dim, lr):
+    def __init__(self, input_dim, hidden_dim, target_dim, lr, first_run):
         super(LSTMModel, self).__init__()
         self.loss_function = nn.MSELoss()
         self.hidden_layer_size = hidden_dim
@@ -80,7 +79,7 @@ class LSTMModel(nn.Sequential):
         # keep at end
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
-        self.first_run = True
+        self.first_run = first_run
         self.losses = []
 
     def forward(self, input_seq):
@@ -134,7 +133,6 @@ def train(model, train_inout_seq, epochs):
         model.losses.clear()
 
     if model.first_run:
-        print(losses_list)
         plot_epochs(losses_list)
 
 
@@ -174,20 +172,18 @@ def actual_plot(losses):
 
 def main():
     noise = NOISE
-    model = LSTMModel(1, 100, 1, 0.001)
     test_losses = []
+    first_run = True
     for i in range(NOISE_NUM):
-        trainData, testData = generate_normalized_data(noise)
+        model = LSTMModel(1, 100, 1, 0.001, first_run)
+        train_data, test_data = generate_normalized_data(noise)
+        labeled_training_sequence = create_inout_sequences(train_data)
 
-        labeledTrainingSequence = create_inout_sequences(trainData)
-
-        train(model, labeledTrainingSequence, epochs=200)
-        predictions = predict_data(model, trainData[-TRAIN_WINDOW:].tolist())
-        test_losses.append(get_test_loss(testData, predictions))
-        # print(test_losses)
-        # actual_plot(model, testData, predictions, noise)
+        train(model, labeled_training_sequence, epochs=200)
+        predictions = predict_data(model, train_data[-TRAIN_WINDOW:].tolist())
+        test_losses.append(get_test_loss(test_data, predictions))
         noise += NOISE
-        model.first_run = False
+        first_run = False
 
     actual_plot(test_losses)
     pass
