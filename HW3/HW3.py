@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
-
+NOISE = 0.1
 TRAIN_WINDOW = 10
 LSTM_LAYERS = 1
 scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -18,20 +18,19 @@ scaler = MinMaxScaler(feature_range=(-1, 1))
 def create_inout_sequences(input_data):
     inout_seq = []
     L = len(input_data)
-    for i in range(L-TRAIN_WINDOW):
-        train_seq = input_data[i:i+TRAIN_WINDOW]
-        train_label = input_data[i+TRAIN_WINDOW:i+TRAIN_WINDOW+1]
+    for i in range(L - TRAIN_WINDOW):
+        train_seq = input_data[i:i + TRAIN_WINDOW]
+        train_label = input_data[i + TRAIN_WINDOW:i + TRAIN_WINDOW + 1]
         inout_seq.append((train_seq, train_label))
     return inout_seq
 
 
-def generate_normalized_data():
+def generate_normalized_data(noise):
     trainLength = 100
     testLength = 10
 
     arparams = np.array([0.6, -0.5, -0.2])
     maparams = np.array([])
-    noise = 0.1
 
     # Generate train and test sequences
     ar = np.r_[1, -arparams]  # add zero-lag and negate
@@ -79,6 +78,9 @@ class LSTMModel(nn.Sequential):
         # keep at end
         self.optimizer = optim.Adam(self.parameters(), lr=lr)
 
+        self.first_run = True
+        self.losses = []
+
     def forward(self, input_seq):
         lstm_out, self.hidden_cell = self.lstm(input_seq.view(len(input_seq), 1, -1), self.hidden_cell)
         predictions = self.linear(lstm_out.view(len(input_seq), -1))
@@ -87,6 +89,8 @@ class LSTMModel(nn.Sequential):
     def gradient_step(self, y_pred, labels):
         loss = self.loss_function(y_pred, labels)
         loss.backward()
+        if self.first_run:
+            self.losses.append(loss.tolist())
         self.optimizer.step()
 
 
@@ -117,9 +121,25 @@ def train(model, train_inout_seq, epochs):
 
             model.gradient_step(y_pred, labels)
 
+        if model.first_run and i % 50 == 0:
+            plot_epoch(model, i)
 
-def actual_plot(model, test_data, predictions):
-    plt.title('Predictions vs Test Loss')
+        model.losses.clear()
+
+
+def plot_epoch(model, epoch_num):
+    plt.title(f"Training Loss for Epoch {epoch_num}")
+    plt.ylabel('Loss')
+    plt.grid(True)
+    plt.autoscale(axis='x', tight=True)
+    x = [i for i in range(len(model.losses))]
+    y = model.losses
+    plt.plot(x, y)
+    plt.show()
+
+
+def actual_plot(model, test_data, predictions, noise):
+    plt.title(f"Test Loss With Noise Level: {noise}")
     plt.ylabel('Loss')
     plt.grid(True)
     plt.autoscale(axis='x', tight=True)
@@ -134,14 +154,18 @@ def actual_plot(model, test_data, predictions):
 
 
 def main():
-    trainData, testData = generate_normalized_data()
-
-    labeledTrainingSequence = create_inout_sequences(trainData)
-
+    noise = NOISE
     model = LSTMModel(1, 100, 1, 0.001)
-    train(model, labeledTrainingSequence, epochs=300)
-    predictions = predict_data(model, trainData[-TRAIN_WINDOW:].tolist())
-    actual_plot(model, testData, predictions)
+    for i in range(10):
+        trainData, testData = generate_normalized_data(noise)
+
+        labeledTrainingSequence = create_inout_sequences(trainData)
+
+        train(model, labeledTrainingSequence, epochs=300)
+        predictions = predict_data(model, trainData[-TRAIN_WINDOW:].tolist())
+        actual_plot(model, testData, predictions, noise)
+        noise += NOISE
+        model.first_run = False
 
     pass
 
