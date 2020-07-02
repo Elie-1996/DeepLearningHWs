@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+from copy import deepcopy
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
@@ -109,6 +110,7 @@ def predict_data(model, test_inputs):
 
 
 def train(model, train_inout_seq, epochs):
+    losses_list = []
     model.train()
 
     for i in range(epochs):
@@ -122,19 +124,24 @@ def train(model, train_inout_seq, epochs):
             model.gradient_step(y_pred, labels)
 
         if model.first_run and i % 50 == 0:
-            plot_epoch(model, i)
+            losses_list.append(deepcopy(model.losses))
 
         model.losses.clear()
 
+    if model.first_run:
+        print(losses_list)
+        plot_epochs(losses_list)
 
-def plot_epoch(model, epoch_num):
-    plt.title(f"Training Loss for Epoch {epoch_num}")
+
+def plot_epochs(losses):
+    plt.title('Training Loss for Epochs')
     plt.ylabel('Loss')
     plt.grid(True)
     plt.autoscale(axis='x', tight=True)
-    x = [i for i in range(len(model.losses))]
-    y = model.losses
-    plt.plot(x, y)
+    x = [i for i in range(len(losses[0]))]
+    for i, loss_list in enumerate(losses):
+        plt.plot(x, loss_list, label=f"Epoch {i*50}")
+    plt.legend()
     plt.show()
 
 
