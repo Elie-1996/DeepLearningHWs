@@ -11,6 +11,7 @@ from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
 NOISE = 0.1
+NOISE_NUM = 10
 TRAIN_WINDOW = 10
 LSTM_LAYERS = 1
 scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -126,9 +127,9 @@ def train(model, train_inout_seq, epochs):
             model.gradient_step(y_pred, label)
             predictions.append(y_pred)
             labels.append(label)
-        if model.first_run and i % 50 == 0:
-            loss_res = model.loss_function(labels, predictions)
-            losses_list.append(loss_res(torch.FloatTensor(predictions[j]), torch.FloatTensor([labels[j]])) for j in range(len(predictions)))
+        if model.first_run:
+            loss_res = model.loss_function(torch.FloatTensor(labels), torch.FloatTensor(predictions))
+            losses_list.append(loss_res.item())
 
         model.losses.clear()
 
@@ -142,17 +143,20 @@ def plot_epochs(losses):
     plt.ylabel('Loss')
     plt.grid(True)
     plt.autoscale(axis='x', tight=True)
-    x = [i for i in range(len(losses[0]))]
-    for i, loss_list in enumerate(losses):
-        plt.plot(x, loss_list, label=f"Epoch {i*50}")
-    plt.legend()
+    x = [i for i in range(len(losses))]
+    y = losses
+    plt.plot(x, y)
+    plt.xlabel("Epoch")
+    plt.ylabel("MSE Loss")
     plt.show()
 
 
 def get_test_loss(test_data, predictions):
     loss = nn.MSELoss()
-    d = predictions.tolist()
-    return [loss(torch.FloatTensor(test_data[i]), torch.FloatTensor([d[i]])) for i in range(len(test_data))]
+    a = torch.from_numpy(test_data)
+    b = torch.from_numpy(predictions).view(-1)
+    c = loss(a, b)
+    return c
 
 
 def actual_plot(losses):
@@ -160,23 +164,24 @@ def actual_plot(losses):
     plt.ylabel('Loss')
     plt.grid(True)
     plt.autoscale(axis='x', tight=True)
-    x = [i for i in range(TRAIN_WINDOW)]
-    for i, loss_list in enumerate(losses):
-        plt.plot(x, loss_list, label=f"Noise level {NOISE * i}")
-    plt.legend()
+    x = [NOISE*(i+1) for i in range(NOISE_NUM)]
+    y = losses
+    plt.plot(x, y)
+    plt.xlabel("Noise")
+    plt.ylabel("MSE Loss")
     plt.show()
 
 
 def main():
-    noise = 0
+    noise = NOISE
     model = LSTMModel(1, 100, 1, 0.001)
     test_losses = []
-    for i in range(10):
+    for i in range(NOISE_NUM):
         trainData, testData = generate_normalized_data(noise)
 
         labeledTrainingSequence = create_inout_sequences(trainData)
 
-        train(model, labeledTrainingSequence, epochs=300)
+        train(model, labeledTrainingSequence, epochs=200)
         predictions = predict_data(model, trainData[-TRAIN_WINDOW:].tolist())
         test_losses.append(get_test_loss(testData, predictions))
         # print(test_losses)
