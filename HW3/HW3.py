@@ -90,8 +90,8 @@ class LSTMModel(nn.Sequential):
     def gradient_step(self, y_pred, labels):
         loss = self.loss_function(y_pred, labels)
         loss.backward()
-        if self.first_run:
-            self.losses.append(loss.tolist())
+        # if self.first_run:
+        #     self.losses.append(loss.tolist())
         self.optimizer.step()
 
 
@@ -114,17 +114,21 @@ def train(model, train_inout_seq, epochs):
     model.train()
 
     for i in range(epochs):
-        for seq, labels in train_inout_seq:
+        predictions = []
+        labels = []
+        for seq, label in train_inout_seq:
             model.optimizer.zero_grad()
             model.hidden_cell = (torch.zeros(LSTM_LAYERS, 1, model.hidden_layer_size),
                                  torch.zeros(LSTM_LAYERS, 1, model.hidden_layer_size))
 
             y_pred = model(seq)
 
-            model.gradient_step(y_pred, labels)
-
+            model.gradient_step(y_pred, label)
+            predictions.append(y_pred)
+            labels.append(label)
         if model.first_run and i % 50 == 0:
-            losses_list.append(deepcopy(model.losses))
+            loss_res = model.loss_function(labels, predictions)
+            losses_list.append(loss_res(torch.FloatTensor(predictions[j]), torch.FloatTensor([labels[j]])) for j in range(len(predictions)))
 
         model.losses.clear()
 
@@ -145,24 +149,28 @@ def plot_epochs(losses):
     plt.show()
 
 
-def actual_plot(model, test_data, predictions, noise):
-    plt.title(f"Test Loss With Noise Level: {noise}")
+def get_test_loss(test_data, predictions):
+    loss = nn.MSELoss()
+    d = predictions.tolist()
+    return [loss(torch.FloatTensor(test_data[i]), torch.FloatTensor([d[i]])) for i in range(len(test_data))]
+
+
+def actual_plot(losses):
+    plt.title(f"Test Losses")
     plt.ylabel('Loss')
     plt.grid(True)
     plt.autoscale(axis='x', tight=True)
     x = [i for i in range(TRAIN_WINDOW)]
-    loss = nn.MSELoss()
-    d = predictions.tolist()
-    y = [loss(torch.FloatTensor([test_data[i]]), torch.FloatTensor([d[i]])) for i in range(len(test_data))]
-    # plt.plot(test_data)
-    # plt.plot([i for i in range(TRAIN_WINDOW)], predictions)
-    plt.plot(x, y)
+    for i, loss_list in enumerate(losses):
+        plt.plot(x, loss_list, label=f"Noise level {NOISE * i}")
+    plt.legend()
     plt.show()
 
 
 def main():
-    noise = NOISE
+    noise = 0
     model = LSTMModel(1, 100, 1, 0.001)
+    test_losses = []
     for i in range(10):
         trainData, testData = generate_normalized_data(noise)
 
@@ -170,10 +178,13 @@ def main():
 
         train(model, labeledTrainingSequence, epochs=300)
         predictions = predict_data(model, trainData[-TRAIN_WINDOW:].tolist())
-        actual_plot(model, testData, predictions, noise)
+        test_losses.append(get_test_loss(testData, predictions))
+        # print(test_losses)
+        # actual_plot(model, testData, predictions, noise)
         noise += NOISE
         model.first_run = False
 
+    actual_plot(test_losses)
     pass
 
 
